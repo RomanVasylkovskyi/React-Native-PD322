@@ -1,74 +1,210 @@
-import { Image, StyleSheet, Platform } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, Button, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { useForm, Controller } from 'react-hook-form';
+import { Picker } from '@react-native-picker/picker';
+import SQLite from 'react-native-sqlite-storage';
 
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
+SQLite.enablePromise(true);
 
-export default function HomeScreen() {
+export default function App() {
+  const [tasks, setTasks] = useState([]);
+
+  const { control, handleSubmit, reset } = useForm({
+    defaultValues: {
+      name: '',
+      date: '',
+      priority: 'low',
+    },
+  });
+
+  const db = SQLite.openDatabase({ name: 'tasks.db', location: 'default' });
+
+  useEffect(() => {
+    db.transaction(tx => {
+      tx.executeSql(
+        'CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, date TEXT, priority TEXT, status TEXT)',
+      );
+    });
+
+    loadTasks();
+  }, []);
+
+  const loadTasks = () => {
+    db.transaction(tx => {
+      tx.executeSql('SELECT * FROM tasks', [], (tx, results) => {
+        let tasksArray = [];
+        for (let i = 0; i < results.rows.length; i++) {
+          tasksArray.push(results.rows.item(i));
+        }
+        setTasks(tasksArray);
+      });
+    });
+  };
+
+  const addTask = (data) => {
+    const newTask = {
+      name: data.name,
+      date: data.date,
+      priority: data.priority,
+      status: 'to-do',
+    };
+    
+    db.transaction(tx => {
+      tx.executeSql(
+        'INSERT INTO tasks (name, date, priority, status) VALUES (?, ?, ?, ?)',
+        [newTask.name, newTask.date, newTask.priority, newTask.status],
+        (tx, results) => {
+          loadTasks();
+        },
+      );
+    });
+
+    reset();
+  };
+
+  const toggleStatus = (id, currentStatus) => {
+    const newStatus = currentStatus === 'to-do' ? 'done' : 'to-do';
+    db.transaction(tx => {
+      tx.executeSql(
+        'UPDATE tasks SET status = ? WHERE id = ?',
+        [newStatus, id],
+        (tx, results) => {
+          loadTasks();
+        },
+      );
+    });
+  };
+
+  const deleteTask = (id) => {
+    db.transaction(tx => {
+      tx.executeSql(
+        'DELETE FROM tasks WHERE id = ?',
+        [id],
+        (tx, results) => {
+          loadTasks();
+        },
+      );
+    });
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12'
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-        <ThemedText>
-          Tap the Explore tab to learn more about what's included in this starter app.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          When you're ready, run{' '}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    <View style={styles.container}>
+      <Text style={styles.title}>📋 To-Do List</Text>
+
+      <Controller
+        control={control}
+        name="name"
+        rules={{ required: 'Назва обов’язкова' }}
+        render={({ field: { onChange, value } }) => (
+          <TextInput style={styles.input} placeholder="Назва завдання" value={value} onChangeText={onChange} />
+        )}
+      />
+
+      <Controller
+        control={control}
+        name="date"
+        render={({ field: { onChange, value } }) => (
+          <TextInput style={styles.input} placeholder="Дата" value={value} onChangeText={onChange} />
+        )}
+      />
+
+      <Controller
+        control={control}
+        name="priority"
+        render={({ field: { onChange, value } }) => (
+          <Picker selectedValue={value} onValueChange={onChange} style={styles.picker}>
+            <Picker.Item label="Low" value="low" />
+            <Picker.Item label="Medium" value="medium" />
+            <Picker.Item label="High" value="high" />
+          </Picker>
+        )}
+      />
+
+      <Button title="Додати завдання" onPress={handleSubmit(addTask)} />
+
+      <FlatList
+        data={tasks}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <View style={[styles.task, item.status === 'done' && styles.taskDone]}>
+            <Text style={styles.taskText}>
+              {item.name} ({item.priority}) - {item.status.toUpperCase()}
+            </Text>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.toggleButton} onPress={() => toggleStatus(item.id, item.status)}>
+                <Text style={styles.buttonText}>{item.status === 'to-do' ? '✅ Виконати' : '🔄 Відмінити'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.deleteButton} onPress={() => deleteTask(item.id)}>
+                <Text style={styles.buttonText}>🗑️ Видалити</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#f5f5f5',
+  },
+  title: {
+    fontSize: 24,
+    marginTop: 33,
+    marginBottom: 20,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
+    marginBottom: 10,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+  },
+  picker: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    marginBottom: 10,
+    backgroundColor: '#fff',
+  },
+  task: {
+    padding: 10,
+    backgroundColor: '#fff',
+    marginBottom: 5,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  taskDone: {
+    backgroundColor: '#d4edda',
+    borderColor: '#155724',
+  },
+  taskText: {
+    fontSize: 16,
+  },
+  buttonRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    marginTop: 5,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  toggleButton: {
+    backgroundColor: '#007bff',
+    padding: 5,
+    borderRadius: 5,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  deleteButton: {
+    backgroundColor: '#dc3545',
+    padding: 5,
+    borderRadius: 5,
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });
