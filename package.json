@@ -1,0 +1,16 @@
+{
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.4"
+  },
+  "name": "react-native-pd322",
+  "version": "1.0.0",
+  "main": "index.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
