@@ -20,8 +20,7 @@ type Todo = {
 export default function TodosScreen() {
   const [todos, setTodos] = useState<Todo[]>([]);
 
-  // Для прикладу: призначимо фіктивний час кожному завданню (якщо потрібно відобразити в UI).
-  // У реальному проєкті це поле може приходити з API або задаватися окремо.
+
   const fakeTimes = ['12 pm', '1 pm', '3 pm', '4 pm', '5 pm'];
 
   useEffect(() => {

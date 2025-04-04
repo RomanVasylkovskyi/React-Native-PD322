@@ -1,12 +1,23 @@
 import React from 'react';
-import { SafeAreaProvider } from 'react-native-safe-area-context'; 
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import TodosScreen from '../TodosScreen';
+import AnotherScreen from '../AnotherScreen';
 
+const Tab = createBottomTabNavigator();
 
-export default function App() {
+export default function MyTabs() {
   return (
-    <SafeAreaProvider>
-      <TodosScreen />
-    </SafeAreaProvider>
+    <Tab.Navigator>
+      <Tab.Screen
+        name="Todos"
+        component={TodosScreen}
+        options={{ tabBarLabel: 'Завдання' }}
+      />
+      <Tab.Screen
+        name="Another"
+        component={AnotherScreen}
+        options={{ tabBarLabel: 'Інше' }}
+      />
+    </Tab.Navigator>
   );
 }
