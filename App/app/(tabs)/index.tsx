@@ -1,11 +1,21 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  Button,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
+import * as SQLite from 'expo-sqlite';
 import { useForm, Controller } from 'react-hook-form';
 import { Picker } from '@react-native-picker/picker';
 
+const db = SQLite.openDatabase('todo.db');
+
 export default function App() {
   const [tasks, setTasks] = useState([]);
-
   const { control, handleSubmit, reset } = useForm({
     defaultValues: {
       name: '',
@@ -14,28 +24,56 @@ export default function App() {
     },
   });
 
-  const addTask = (data) => {
-    const newTask = {
-      id: Date.now().toString(),
-      name: data.name,
-      date: data.date,
-      priority: data.priority,
-      status: 'to-do',
-    };
-    setTasks((prevTasks) => [...prevTasks, newTask]);
-    reset(); // Очищення форми
+  useEffect(() => {
+    db.transaction((tx: { executeSql: (arg0: string) => void; }) => {
+      tx.executeSql(
+        `CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT,
+          date TEXT,
+          priority TEXT,
+          status TEXT
+        );`
+      );
+    }, null, fetchTasks);
+  }, []);
+
+  const fetchTasks = () => {
+    db.transaction((tx: { executeSql: (arg0: string, arg1: never[], arg2: (_: any, { rows }: { rows: any; }) => void) => void; }) => {
+      tx.executeSql('SELECT * FROM tasks', [], (_, { rows }) => {
+        setTasks(rows._array);
+      });
+    });
   };
 
-  const toggleStatus = (id) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === id ? { ...task, status: task.status === 'to-do' ? 'done' : 'to-do' } : task
-      )
-    );
+  const addTask = (data) => {
+    db.transaction((tx) => {
+      tx.executeSql(
+        `INSERT INTO tasks (name, date, priority, status) VALUES (?, ?, ?, ?)`,
+        [data.name, data.date, data.priority, 'to-do'],
+        (_, result) => {
+          fetchTasks();
+          reset();
+        }
+      );
+    });
+  };
+
+  const toggleStatus = (id, currentStatus) => {
+    const newStatus = currentStatus === 'to-do' ? 'done' : 'to-do';
+    db.transaction((tx) => {
+      tx.executeSql(
+        `UPDATE tasks SET status = ? WHERE id = ?`,
+        [newStatus, id],
+        () => fetchTasks()
+      );
+    });
   };
 
   const deleteTask = (id) => {
-    setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
+    db.transaction((tx) => {
+      tx.executeSql(`DELETE FROM tasks WHERE id = ?`, [id], () => fetchTasks());
+    });
   };
 
   return (
@@ -46,8 +84,16 @@ export default function App() {
         control={control}
         name="name"
         rules={{ required: 'Назва обов’язкова' }}
-        render={({ field: { onChange, value } }) => (
-          <TextInput style={styles.input} placeholder="Назва завдання" value={value} onChangeText={onChange} />
+        render={({ field: { onChange, value }, fieldState: { error } }) => (
+          <>
+            <TextInput
+              style={styles.input}
+              placeholder="Назва завдання"
+              value={value}
+              onChangeText={onChange}
+            />
+            {error && <Text style={styles.error}>{error.message}</Text>}
+          </>
         )}
       />
 
@@ -55,7 +101,12 @@ export default function App() {
         control={control}
         name="date"
         render={({ field: { onChange, value } }) => (
-          <TextInput style={styles.input} placeholder="Дата" value={value} onChangeText={onChange} />
+          <TextInput
+            style={styles.input}
+            placeholder="Дата"
+            value={value}
+            onChangeText={onChange}
+          />
         )}
       />
 
@@ -63,11 +114,13 @@ export default function App() {
         control={control}
         name="priority"
         render={({ field: { onChange, value } }) => (
-          <Picker selectedValue={value} onValueChange={onChange} style={styles.picker}>
-            <Picker.Item label="Low" value="low" />
-            <Picker.Item label="Medium" value="medium" />
-            <Picker.Item label="High" value="high" />
-          </Picker>
+          <View style={styles.input}>
+            <Picker selectedValue={value} onValueChange={onChange}>
+              <Picker.Item label="Low" value="low" />
+              <Picker.Item label="Medium" value="medium" />
+              <Picker.Item label="High" value="high" />
+            </Picker>
+          </View>
         )}
       />
 
@@ -75,19 +128,25 @@ export default function App() {
 
       <FlatList
         data={tasks}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
           <View style={[styles.task, item.status === 'done' && styles.taskDone]}>
             <Text style={styles.taskText}>
               {item.name} ({item.priority}) - {item.status.toUpperCase()}
             </Text>
-
-            {/* Кнопки для зміни статусу та видалення */}
             <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.toggleButton} onPress={() => toggleStatus(item.id)}>
-                <Text style={styles.buttonText}>{item.status === 'to-do' ? '✅ Виконати' : '🔄 Відмінити'}</Text>
+              <TouchableOpacity
+                style={styles.toggleButton}
+                onPress={() => toggleStatus(item.id, item.status)}
+              >
+                <Text style={styles.buttonText}>
+                  {item.status === 'to-do' ? '✅ Виконати' : '🔄 Відмінити'}
+                </Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteButton} onPress={() => deleteTask(item.id)}>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => deleteTask(item.id)}
+              >
                 <Text style={styles.buttonText}>🗑️ Видалити</Text>
               </TouchableOpacity>
             </View>
@@ -117,12 +176,6 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
     borderRadius: 5,
-    backgroundColor: '#fff',
-  },
-  picker: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    marginBottom: 10,
     backgroundColor: '#fff',
   },
   task: {
@@ -158,5 +211,9 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  error: {
+    color: 'red',
+    marginBottom: 10,
   },
 });
