@@ -1,22 +1,27 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSelector } from 'react-redux';
+import { RootState } from '../../scripts/store';
 import TodosScreen from '../TodosScreen';
 import AnotherScreen from '../AnotherScreen';
 
 const Tab = createBottomTabNavigator();
 
-export default function MyTabs() {
+export default function Tabs() {
+  const incompleteCount = useSelector((state: RootState) =>
+    state.tasks.tasks.filter(task => !task.completed).length
+  );
+
   return (
     <Tab.Navigator>
       <Tab.Screen
-        name="Todos"
+        name="Tasks"
         component={TodosScreen}
-        options={{ tabBarLabel: 'Завдання' }}
+        options={{ tabBarBadge: incompleteCount > 0 ? incompleteCount : undefined }}
       />
       <Tab.Screen
-        name="Another"
+        name="More"
         component={AnotherScreen}
-        options={{ tabBarLabel: 'Інше' }}
       />
     </Tab.Navigator>
   );
