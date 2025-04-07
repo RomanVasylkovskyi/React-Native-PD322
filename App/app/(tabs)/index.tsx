@@ -1,10 +1,66 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import 'reflect-metadata';
+import React, { useEffect, useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  Button,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  Platform,
+  Alert,
+} from 'react-native';
+import * as SQLite from 'expo-sqlite';
+import { Entity, PrimaryGeneratedColumn, Column, DataSource } from 'typeorm';
 import { useForm, Controller } from 'react-hook-form';
 import { Picker } from '@react-native-picker/picker';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+
+// Сутність Task
+@Entity('tasks')
+class Task {
+  @PrimaryGeneratedColumn()
+  id;
+
+  @Column()
+  name;
+
+  @Column()
+  date;
+
+  @Column()
+  deadline;
+
+  @Column()
+  priority;
+
+  @Column()
+  status;
+}
+
+const db = SQLite.openDatabase('todo.db');
+
+const AppDataSource = new DataSource({
+  type: 'expo',
+  database: 'todo.db',
+  driver: db,
+  entities: [Task],
+  synchronize: true,
+});
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 export default function App() {
   const [tasks, setTasks] = useState([]);
+  const [initialized, setInitialized] = useState(false);
 
   const { control, handleSubmit, reset } = useForm({
     defaultValues: {
@@ -14,48 +70,143 @@ export default function App() {
     },
   });
 
-  const addTask = (data) => {
-    const newTask = {
-      id: Date.now().toString(),
+  useEffect(() => {
+    const initializeDatabase = async () => {
+      try {
+        await AppDataSource.initialize();
+        const repo = AppDataSource.getRepository(Task);
+        const allTasks = await repo.find();
+        setTasks(allTasks);
+        setInitialized(true);
+      } catch (err) {
+        console.error('DB init error', err);
+      }
+    };
+
+    const setupNotifications = async () => {
+      if (Device.isDevice) {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+
+        if (finalStatus !== 'granted') {
+          Alert.alert('Немає дозволу на нотифікації');
+          return;
+        }
+
+        await Notifications.setNotificationCategoryAsync('task-actions', [
+          {
+            identifier: 'SHOW',
+            buttonTitle: 'Show',
+            options: { opensAppToForeground: true },
+          },
+          {
+            identifier: 'DELETE',
+            buttonTitle: 'Delete',
+            options: { isDestructive: true },
+          },
+        ]);
+      } else {
+        Alert.alert('Нотифікації працюють лише на фізичному пристрої');
+      }
+    };
+
+    initializeDatabase();
+    setupNotifications();
+  }, []);
+
+  useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener(async response => {
+      const actionId = response.actionIdentifier;
+      const taskId = response.notification.request.content.data.taskId;
+
+      if (actionId === 'DELETE') {
+        await deleteTask(taskId);
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
+
+  const addTask = async (data) => {
+    const repo = AppDataSource.getRepository(Task);
+    const newTask = repo.create({
       name: data.name,
       date: data.date,
+      deadline: data.date,
       priority: data.priority,
       status: 'to-do',
-    };
-    setTasks((prevTasks) => [...prevTasks, newTask]);
-    reset(); // Очищення форми
+    });
+
+    await repo.save(newTask);
+
+    const deadlineTime = new Date(data.date);
+    if (!isNaN(deadlineTime)) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: '🕒 Deadline!',
+          body: `Завдання "${data.name}" має бути виконано!`,
+          categoryIdentifier: 'task-actions',
+          data: { taskId: newTask.id },
+        },
+        trigger: deadlineTime,
+      });
+    }
+
+    const allTasks = await repo.find();
+    setTasks(allTasks);
+    reset();
   };
 
-  const toggleStatus = (id) => {
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === id ? { ...task, status: task.status === 'to-do' ? 'done' : 'to-do' } : task
-      )
-    );
+  const toggleStatus = async (id) => {
+    const repo = AppDataSource.getRepository(Task);
+    const task = await repo.findOneBy({ id });
+    task.status = task.status === 'to-do' ? 'done' : 'to-do';
+    await repo.save(task);
+    const allTasks = await repo.find();
+    setTasks(allTasks);
   };
 
-  const deleteTask = (id) => {
-    setTasks((prevTasks) => prevTasks.filter((task) => task.id !== id));
+  const deleteTask = async (id) => {
+    const repo = AppDataSource.getRepository(Task);
+    await repo.delete(id);
+    const allTasks = await repo.find();
+    setTasks(allTasks);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>📋 To-Do List</Text>
+      <Text style={styles.title}>📋 To-Do List з Нотифікаціями</Text>
 
       <Controller
         control={control}
         name="name"
         rules={{ required: 'Назва обов’язкова' }}
         render={({ field: { onChange, value } }) => (
-          <TextInput style={styles.input} placeholder="Назва завдання" value={value} onChangeText={onChange} />
+          <TextInput
+            style={styles.input}
+            placeholder="Назва завдання"
+            value={value}
+            onChangeText={onChange}
+          />
         )}
       />
 
       <Controller
         control={control}
         name="date"
+        rules={{ required: 'Дата дедлайну обов’язкова' }}
         render={({ field: { onChange, value } }) => (
-          <TextInput style={styles.input} placeholder="Дата" value={value} onChangeText={onChange} />
+          <TextInput
+            style={styles.input}
+            placeholder="Дата дедлайну (YYYY-MM-DD HH:MM:SS)"
+            value={value}
+            onChangeText={onChange}
+          />
         )}
       />
 
@@ -71,21 +222,22 @@ export default function App() {
         )}
       />
 
-      <Button title="Додати завдання" onPress={handleSubmit(addTask)} />
+      <Button title="Додати завдання" onPress={handleSubmit(addTask)} disabled={!initialized} />
 
       <FlatList
         data={tasks}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
           <View style={[styles.task, item.status === 'done' && styles.taskDone]}>
             <Text style={styles.taskText}>
               {item.name} ({item.priority}) - {item.status.toUpperCase()}
             </Text>
-
-            {/* Кнопки для зміни статусу та видалення */}
+            <Text>📅 {item.deadline}</Text>
             <View style={styles.buttonRow}>
               <TouchableOpacity style={styles.toggleButton} onPress={() => toggleStatus(item.id)}>
-                <Text style={styles.buttonText}>{item.status === 'to-do' ? '✅ Виконати' : '🔄 Відмінити'}</Text>
+                <Text style={styles.buttonText}>
+                  {item.status === 'to-do' ? '✅ Виконати' : '🔄 Відмінити'}
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.deleteButton} onPress={() => deleteTask(item.id)}>
                 <Text style={styles.buttonText}>🗑️ Видалити</Text>
@@ -120,8 +272,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   picker: {
-    borderWidth: 1,
-    borderColor: '#ccc',
     marginBottom: 10,
     backgroundColor: '#fff',
   },
