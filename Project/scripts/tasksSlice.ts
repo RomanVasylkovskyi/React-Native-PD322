@@ -1,7 +1,8 @@
+// scripts/tasksSlice.ts
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
-interface Task {
-  id: string;
+export interface Task {
+  id: number;
   title: string;
   completed: boolean;
 }
@@ -18,20 +19,18 @@ const tasksSlice = createSlice({
   name: 'tasks',
   initialState,
   reducers: {
-    addTask(state, action: PayloadAction<Task>) {
-      state.tasks.push(action.payload);
+    setTasks(state, action: PayloadAction<Task[]>) {
+      state.tasks = action.payload;
     },
-    toggleTaskStatus(state, action: PayloadAction<string>) {
-      const task = state.tasks.find((t) => t.id === action.payload);
-      if (task) {
-        task.completed = !task.completed;
-      }
+    toggleTask(state, action: PayloadAction<number>) {
+      const task = state.tasks.find(t => t.id === action.payload);
+      if (task) task.completed = !task.completed;
     },
-    deleteTask(state, action: PayloadAction<string>) {
-      state.tasks = state.tasks.filter((t) => t.id !== action.payload);
-    },
+    deleteTask(state, action: PayloadAction<number>) {
+      state.tasks = state.tasks.filter(t => t.id !== action.payload);
+    }
   },
 });
 
-export const { addTask, toggleTaskStatus, deleteTask } = tasksSlice.actions;
+export const { setTasks, toggleTask, deleteTask } = tasksSlice.actions;
 export default tasksSlice.reducer;
